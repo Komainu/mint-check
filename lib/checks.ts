@@ -43,8 +43,12 @@ export interface MintCheckResult {
   control: {
     owner: Address | null;
     ownerKind: OwnerKind;
+    /** オーナーが複数人管理（Safe）だった場合の内訳。例: 3人中2人の承認が必要 */
+    multisig: { type: "safe"; threshold: number; ownerCount: number } | null;
   };
   mint: {
+    /** ERC-1155 では tokenId を指定したときだけ読める */
+    tokenId: string | null;
     totalSupply: string | null;
     maxSupply: string | null;
     /** 標準の型と一致したときだけ埋まる */
@@ -85,6 +89,18 @@ const READ_ABI = [
   { type: "function", name: "maxSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "MAX_SUPPLY", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "contractType", stateMutability: "pure", inputs: [], outputs: [{ type: "bytes32" }] },
+] as const;
+
+/** ERC-1155 はトークン番号ごとに発行数を持つ */
+const PER_TOKEN_ABI = [
+  { type: "function", name: "totalSupply", stateMutability: "view", inputs: [{ name: "id", type: "uint256" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "maxSupply", stateMutability: "view", inputs: [{ name: "id", type: "uint256" }], outputs: [{ type: "uint256" }] },
+] as const;
+
+/** Safe（複数人管理ウォレット）の読み取り */
+const SAFE_ABI = [
+  { type: "function", name: "getThreshold", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getOwners", stateMutability: "view", inputs: [], outputs: [{ type: "address[]" }] },
 ] as const;
 
 const IFACE_ERC721 = "0x80ac58cd" as Hex;
@@ -232,7 +248,7 @@ async function lookupSourcify(address: Address): Promise<{
 export async function runMintCheck(
   rawAddress: string,
   client: PublicClient,
-  opts: { sourcify?: boolean } = {},
+  opts: { sourcify?: boolean; tokenId?: bigint } = {},
 ): Promise<MintCheckResult> {
   const address = getAddress(rawAddress);
   const flags: MintCheckResult["flags"] = [];
@@ -261,8 +277,14 @@ export async function runMintCheck(
       implementation: null,
       proxyAdmin: null,
     },
-    control: { owner: null, ownerKind: null },
-    mint: { totalSupply: null, maxSupply: null, knownType: null, knownTypeDetail: null },
+    control: { owner: null, ownerKind: null, multisig: null },
+    mint: {
+      tokenId: opts.tokenId != null ? opts.tokenId.toString() : null,
+      totalSupply: null,
+      maxSupply: null,
+      knownType: null,
+      knownTypeDetail: null,
+    },
     capabilities: {
       canChangeMetadata: null,
       canChangeSupplyOrPrice: null,
@@ -331,6 +353,8 @@ export async function runMintCheck(
       note: "Does not report ERC-721 or ERC-1155 via ERC-165.",
     });
   }
+  if (name == null) notMeasured.push({ item: "name", reason: "No readable name()." });
+  if (symbol == null) notMeasured.push({ item: "symbol", reason: "No readable symbol()." });
   if (!sourcify.deployer) {
     notMeasured.push({ item: "deployer", reason: "Not available from Sourcify for this contract." });
   }
@@ -380,6 +404,28 @@ export async function runMintCheck(
         notMeasured.push({ item: "ownerKind", reason: "Owner code could not be read." });
       } else if (ownerCode && ownerCode !== "0x") {
         result.control.ownerKind = "contract";
+        const [threshold, safeOwners] = await Promise.all([
+          tryRead(() => client.readContract({ address: owner, abi: SAFE_ABI, functionName: "getThreshold" })),
+          tryRead(() => client.readContract({ address: owner, abi: SAFE_ABI, functionName: "getOwners" })),
+        ]);
+        if (threshold != null && safeOwners != null && safeOwners.length > 0) {
+          result.control.multisig = {
+            type: "safe",
+            threshold: Number(threshold),
+            ownerCount: safeOwners.length,
+          };
+          if (Number(threshold) <= 1) {
+            flags.push({
+              code: "MULTISIG_SINGLE_APPROVAL",
+              note: "Owner is a Safe, but one approval is enough to act.",
+            });
+          }
+        } else {
+          notMeasured.push({
+            item: "control.multisig",
+            reason: "Owner is a contract but not a readable Safe; its rules were not analysed.",
+          });
+        }
       } else {
         result.control.ownerKind = "single_key";
         flags.push({ code: "OWNER_SINGLE_KEY", note: "Owner is a single externally owned key." });
@@ -390,11 +436,45 @@ export async function runMintCheck(
   }
 
   // 4. 発行数
-  result.mint.totalSupply = totalSupply != null ? totalSupply.toString() : null;
-  const maxSupply = maxSupplyA ?? maxSupplyB;
+  const is1155Token = result.basics.standard === "ERC-1155";
+  let supply: bigint | null = totalSupply;
+  let maxSupply: bigint | null = maxSupplyA ?? maxSupplyB;
+  if (opts.tokenId != null) {
+    // トークン番号が指定されたら、番号ごとの値を優先して読む
+    const id = opts.tokenId;
+    const [perTokenSupply, perTokenMax] = await Promise.all([
+      tryRead(() => client.readContract({ address, abi: PER_TOKEN_ABI, functionName: "totalSupply", args: [id] })),
+      tryRead(() => client.readContract({ address, abi: PER_TOKEN_ABI, functionName: "maxSupply", args: [id] })),
+    ]);
+    if (is1155Token) {
+      supply = perTokenSupply;
+      maxSupply = perTokenMax;
+    } else {
+      supply = supply ?? perTokenSupply;
+      maxSupply = maxSupply ?? perTokenMax;
+    }
+  }
+  result.mint.totalSupply = supply != null ? supply.toString() : null;
   result.mint.maxSupply = maxSupply != null ? maxSupply.toString() : null;
-  if (totalSupply == null) notMeasured.push({ item: "totalSupply", reason: "No readable totalSupply()." });
-  if (maxSupply == null) notMeasured.push({ item: "maxSupply", reason: "No readable maxSupply()." });
+  const needsTokenId = is1155Token && opts.tokenId == null;
+  if (supply == null) {
+    notMeasured.push({
+      item: "totalSupply",
+      reason: needsTokenId
+        ? "ERC-1155 keeps supply per token. Pass tokenId to read it."
+        : opts.tokenId != null
+          ? "No readable totalSupply(tokenId)."
+          : "No readable totalSupply().",
+    });
+  }
+  if (maxSupply == null) {
+    notMeasured.push({
+      item: "maxSupply",
+      reason: needsTokenId
+        ? "ERC-1155 keeps supply per token. Pass tokenId to read it."
+        : "No readable max supply function.",
+    });
+  }
 
   // 7. 既知の型
   const thirdwebType = contractType ? bytes32ToText(contractType) : "";
@@ -442,4 +522,11 @@ export async function runMintCheck(
 
 export function isValidAddress(value: string | null): value is string {
   return !!value && isAddress(value);
+}
+
+/** tokenId の文字列（10進）を検証して bigint にする。未指定は undefined、不正は null */
+export function parseTokenId(value: string | null | undefined): bigint | undefined | null {
+  if (value == null || value === "") return undefined;
+  if (!/^[0-9]{1,78}$/.test(value)) return null;
+  return BigInt(value);
 }
