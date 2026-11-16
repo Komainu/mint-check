@@ -58,13 +58,19 @@ export function buildResourceServer() {
   return server;
 }
 
+/**
+ * カタログに表示される説明。
+ * CDPのファシリテーターは500文字を超えると支払いを拒否するので、短く保つ（scripts/config-test.ts で確認）。
+ */
+export const ROUTE_DESCRIPTION =
+  "Pre-mint check for NFT contracts on Base. Returns on-chain facts: who controls the contract (single key, renounced, or Safe multisig with threshold), upgradeable proxy, verified source, supply and max supply, and owner functions to change metadata, supply or price, pause, withdraw, or mint extra. Detects SeaDrop and thirdweb drops. Lists what could not be measured. Not an audit or financial advice.";
+
 /** カタログに表示される説明・入力例・出力例 */
 export function buildRouteConfig() {
   const { payTo, network, price } = getPaymentSettings();
   return {
     accepts: [{ scheme: "exact" as const, price, network, payTo }],
-    description:
-      "Pre-mint check for NFT contracts on Base. Before you mint or buy: who controls the contract (single key, renounced, or a Safe multisig with its approval threshold), whether it is an upgradeable proxy, whether source is verified, supply and max supply, and whether owner functions exist to change metadata, change supply or price, pause, withdraw, or mint extra. Detects SeaDrop and thirdweb drop types. Returns facts and a list of what could not be measured. Heuristics, not an audit, not financial advice.",
+    description: ROUTE_DESCRIPTION,
     mimeType: "application/json",
     extensions: {
       ...declareDiscoveryExtension({

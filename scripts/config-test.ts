@@ -1,5 +1,5 @@
 /** 環境変数の組み合わせごとに、料金所の設定が正しく選ばれるかを確かめる: npx tsx scripts/config-test.ts */
-import { getPaymentSettings } from "../lib/x402";
+import { getPaymentSettings, ROUTE_DESCRIPTION } from "../lib/x402";
 
 const PAY = "0xCBD946D0Dc0AD404939f5868D8d6EFEdaDA0F7e3";
 let failed = 0;
@@ -22,6 +22,12 @@ run("本番・キーあり → CDP", { PAY_TO: PAY, X402_NETWORK: "eip155:8453",
 run("本番・キーなし → エラー", { PAY_TO: PAY, X402_NETWORK: "eip155:8453" }, (_, e) => !!e && /本番/.test(e.message));
 run("キーが片方だけ → エラー", { PAY_TO: PAY, CDP_API_KEY_ID: "id" }, (_, e) => !!e && /両方/.test(e.message));
 run("PAY_TO なし → エラー", {}, (_, e) => !!e && /PAY_TO/.test(e.message));
+
+{
+  const ok = ROUTE_DESCRIPTION.length <= 500;
+  console.log((ok ? "OK  " : "NG  ") + `説明文が500文字以内（${ROUTE_DESCRIPTION.length}文字）`);
+  if (!ok) failed++;
+}
 
 console.log(failed ? `\n${failed} 件失敗` : "\nすべて通過");
 if (failed) process.exitCode = 1;
