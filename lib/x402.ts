@@ -65,11 +65,26 @@ export function buildResourceServer() {
 export const ROUTE_DESCRIPTION =
   "Pre-mint check for NFT contracts on Base. Returns on-chain facts: who controls the contract (single key, renounced, or Safe multisig with threshold), upgradeable proxy, verified source, supply and max supply, and owner functions to change metadata, supply or price, pause, withdraw, or mint extra. Detects SeaDrop and thirdweb drops. Lists what could not be measured. Not an audit or financial advice.";
 
+/** カタログに出る表示名（ASCII・32文字以内） */
+export const SERVICE_NAME = "Mint Check";
+
+/** カタログの検索タグ（ASCII・各32文字以内・最大5個） */
+export const SERVICE_TAGS = ["nft", "pre-mint-check", "contract-risk", "base", "rug-check"];
+
+/** このAPIのパス。カタログに正しいパスで載るよう、ルート設定のキーに使う */
+export const ROUTE_PATH = "/api/mint-check";
+
 /** カタログに表示される説明・入力例・出力例 */
+export function buildRoutes() {
+  return { [ROUTE_PATH]: buildRouteConfig() };
+}
+
 export function buildRouteConfig() {
   const { payTo, network, price } = getPaymentSettings();
   return {
     accepts: [{ scheme: "exact" as const, price, network, payTo }],
+    serviceName: SERVICE_NAME,
+    tags: SERVICE_TAGS,
     description: ROUTE_DESCRIPTION,
     mimeType: "application/json",
     extensions: {

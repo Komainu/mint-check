@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { withX402 } from "@x402/next";
-import { buildResourceServer, buildRouteConfig } from "@/lib/x402";
+import { buildResourceServer, buildRoutes } from "@/lib/x402";
 import { isValidAddress, makeClient, parseTokenId, runMintCheck } from "@/lib/checks";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ let paid: PaidHandler | null = null;
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!paid) {
     try {
-      paid = withX402(handler, buildRouteConfig(), buildResourceServer()) as PaidHandler;
+      paid = withX402(handler, buildRoutes(), buildResourceServer()) as PaidHandler;
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }

@@ -1,5 +1,6 @@
 /** 環境変数の組み合わせごとに、料金所の設定が正しく選ばれるかを確かめる: npx tsx scripts/config-test.ts */
-import { getPaymentSettings, ROUTE_DESCRIPTION } from "../lib/x402";
+import { getPaymentSettings, ROUTE_DESCRIPTION, SERVICE_NAME, SERVICE_TAGS, buildRoutes } from "../lib/x402";
+import { isValidServiceName, sanitizeTags } from "@x402/extensions/bazaar";
 
 const PAY = "0xCBD946D0Dc0AD404939f5868D8d6EFEdaDA0F7e3";
 let failed = 0;
@@ -27,6 +28,21 @@ run("PAY_TO なし → エラー", {}, (_, e) => !!e && /PAY_TO/.test(e.message)
   const ok = ROUTE_DESCRIPTION.length <= 500;
   console.log((ok ? "OK  " : "NG  ") + `説明文が500文字以内（${ROUTE_DESCRIPTION.length}文字）`);
   if (!ok) failed++;
+}
+
+{
+  const checks: [string, boolean][] = [
+    [`表示名がカタログの条件を満たす（${SERVICE_NAME}）`, isValidServiceName(SERVICE_NAME)],
+    ["タグが削られずに全部残る", JSON.stringify(sanitizeTags(SERVICE_TAGS)) === JSON.stringify(SERVICE_TAGS)],
+  ];
+  process.env.PAY_TO = PAY;
+  const routes = buildRoutes();
+  checks.push(["ルートがパス付きで登録される（ワイルドカードなし）", Object.keys(routes).join() === "/api/mint-check"]);
+  delete process.env.PAY_TO;
+  for (const [l, ok] of checks) {
+    console.log((ok ? "OK  " : "NG  ") + l);
+    if (!ok) failed++;
+  }
 }
 
 console.log(failed ? `\n${failed} 件失敗` : "\nすべて通過");

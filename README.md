@@ -1,4 +1,4 @@
-# Mint Check（v0.3.2）
+# Mint Check（v0.4）
 
 BaseのNFTコントラクトを、ミントや購入の前に調べる有料APIです。x402で1回ごとに課金します。
 この版は**練習用ネットワーク（Base Sepolia）で課金**するので、本物のお金は動きません。調べる対象はBase本番のコントラクトです。
@@ -85,9 +85,17 @@ Base Sepolia のテスト用USDCを持ったウォレットから、x402に対�
 | `scripts/check.ts` | 支払いなしで試すコマンド |
 | `scripts/selftest.ts` | 通信なしの簡易テスト（`npx tsx scripts/selftest.ts`） |
 | `scripts/log-test.ts` | 失敗ログに署名が出ないことのテスト |
+| `scripts/route-test.ts` | 402応答に表示名・タグ・パスが載るかのテスト |
 | `scripts/config-test.ts` | 環境変数ごとの料金所の設定テスト（`npx tsx scripts/config-test.ts`） |
 
 ## 変更履歴
+
+### v0.4（2026-11-16）
+
+- カタログ用の表示名「Mint Check」と検索タグ5個（nft, pre-mint-check, contract-risk, base, rug-check）を追加した。
+- ルートをパス付き（`/api/mint-check`）で登録するようにし、ログのワイルドカード警告をなくした。
+- 402応答に表示名・タグが載ることを、代役のファシリテーターで確かめるテストを追加した（`scripts/route-test.ts`）。
+- 2026-11-16 に Base 本番で初の決済（0.02 USDC、自分で購入）を確認。
 
 ### v0.3.2（2026-11-16）
 
@@ -118,7 +126,8 @@ Base Sepolia のテスト用USDCを持ったウォレットから、x402に対�
 ## この版の確認状況
 
 - 型チェック、ビルド、通信なしの簡易テスト（30項目）は通過済み。
-- CDPのファシリテーターでの支払いは**まだ確認していません**。段階Aが最初の確認です。
+- Base 本番・CDP のファシリテーターでの支払いは確認済み（2026-11-16）。
+- 表示名とタグがBazaarに反映されるかは、公開後に確認が必要。
 
 ## 既知の制約
 
