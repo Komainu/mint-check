@@ -1,4 +1,4 @@
-# Mint Check（v0.3）
+# Mint Check（v0.3.1）
 
 BaseのNFTコントラクトを、ミントや購入の前に調べる有料APIです。x402で1回ごとに課金します。
 この版は**練習用ネットワーク（Base Sepolia）で課金**するので、本物のお金は動きません。調べる対象はBase本番のコントラクトです。
@@ -84,9 +84,15 @@ Base Sepolia のテスト用USDCを持ったウォレットから、x402に対�
 | `app/api/mint-check/route.ts` | 有料API |
 | `scripts/check.ts` | 支払いなしで試すコマンド |
 | `scripts/selftest.ts` | 通信なしの簡易テスト（`npx tsx scripts/selftest.ts`） |
+| `scripts/log-test.ts` | 失敗ログに署名が出ないことのテスト |
 | `scripts/config-test.ts` | 環境変数ごとの料金所の設定テスト（`npx tsx scripts/config-test.ts`） |
 
 ## 変更履歴
+
+### v0.3.1（2026-11-16）
+
+- ファシリテーターとのやり取りが失敗したとき、Vercel のログに `[facilitator-error]` として詳細を書き出すようにした。署名と認証ヘッダーは書き出さない。
+- CDP経由の練習用購入は、支払いの形式が合わないという理由で拒否された（課金なし）。原因調査中。
 
 ### v0.3（2026-11-16）
 

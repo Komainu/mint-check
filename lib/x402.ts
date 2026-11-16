@@ -8,6 +8,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { bazaarResourceServerExtension, declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { createFacilitatorConfig } from "@coinbase/x402";
+import { installFacilitatorLogging } from "./facilitator-log";
 
 type Network = `${string}:${string}`;
 
@@ -45,6 +46,7 @@ export function getPaymentSettings() {
 }
 
 export function buildResourceServer() {
+  installFacilitatorLogging();
   const { network, facilitator } = getPaymentSettings();
   const client =
     facilitator.kind === "cdp"
