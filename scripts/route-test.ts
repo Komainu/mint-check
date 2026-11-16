@@ -63,6 +63,14 @@ const expect = (label: string, ok: boolean) => {
   expect("価格は0.02 USDC", body.accepts?.[0]?.amount === "20000");
   expect("Bazaar用の情報が載る", !!body.extensions?.bazaar);
   expect("ワイルドカードの警告が出ない", !warnings.some(w => w.includes("Wildcard")));
+  // POST（OpenSea などの JSON 入力）でも支払いなしなら402
+  const postAdapter = { ...adapter, getMethod: () => "POST", getQueryParams: () => ({}), getQueryParam: () => undefined,
+    getBody: async () => ({ address: "0xBa5e05cb26b78eDa3A2f8e3b3814726305dcAc83" }) };
+  const postResult = (await http.processHTTPRequest({ adapter: postAdapter as never, path: ROUTE_PATH, method: "POST" })) as {
+    type: string; response?: { status: number };
+  };
+  expect("POST でも支払いなしなら402を返す", postResult.type === "payment-error" && postResult.response?.status === 402);
+
   if (warnings.length) console.log("（その他の警告）\n" + warnings.join("\n"));
 
   console.log(failed ? `\n${failed} 件失敗` : "\nすべて通過");

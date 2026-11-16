@@ -1,4 +1,4 @@
-# Mint Check（v0.4）
+# Mint Check（v0.5）
 
 BaseのNFTコントラクトを、ミントや購入の前に調べる有料APIです。x402で1回ごとに課金します。
 この版は**練習用ネットワーク（Base Sepolia）で課金**するので、本物のお金は動きません。調べる対象はBase本番のコントラクトです。
@@ -6,7 +6,10 @@ BaseのNFTコントラクトを、ミントや購入の前に調べる有料API�
 ```
 GET /api/mint-check?address=0x調べたいコントラクト
 GET /api/mint-check?address=0x調べたいコントラクト&tokenId=1
+POST /api/mint-check   本文 {"address":"0x調べたいコントラクト","tokenId":"1"}
 ```
+
+POST は OpenSea のツール一覧（ERC-8257）から呼ぶエージェント向けです。価格と中身は GET と同じです。
 
 `tokenId` は任意です。ERC-1155 は発行数をトークン番号ごとに持つので、発行数を読みたいときに指定します。
 
@@ -75,20 +78,36 @@ Base Sepolia のテスト用USDCを持ったウォレットから、x402に対�
 
 本番でCDPのキーが空のままだと、起動時にエラーを返して課金しないようにしてあります。
 
+## OpenSea（ERC-8257）への掲載
+
+- マニフェストを `https://mint-check.vercel.app/.well-known/ai-tool/mint-check.json` で公開しています（`lib/manifest.ts`）。
+- 登録は Base Account から、OpenSea のツール登録コントラクトへの取引で行います（次の作業）。
+- **登録後にマニフェストの中身を変えたら、オンチェーンの記録も更新が必要です。** 環境変数の `PAY_TO`・`X402_NETWORK`・`PRICE` もマニフェストに含まれるので、変えるときは要注意です。
+
 ## ファイル
 
 | ファイル | 役割 |
 |---|---|
 | `lib/checks.ts` | チェック本体 |
 | `lib/x402.ts` | 料金所の設定とカタログ用の説明 |
+| `lib/manifest.ts` | OpenSea（ERC-8257）用のマニフェスト |
+| `lib/input.ts` | GET のクエリ・POST の JSON 本文から入力を読む |
+| `app/api/manifest/route.ts` | マニフェストを返す（無料） |
 | `app/api/mint-check/route.ts` | 有料API |
 | `scripts/check.ts` | 支払いなしで試すコマンド |
 | `scripts/selftest.ts` | 通信なしの簡易テスト（`npx tsx scripts/selftest.ts`） |
 | `scripts/log-test.ts` | 失敗ログに署名が出ないことのテスト |
+| `scripts/manifest-test.ts` | マニフェストを OpenSea 公式の検証関数で確かめるテスト |
 | `scripts/route-test.ts` | 402応答に表示名・タグ・パスが載るかのテスト |
 | `scripts/config-test.ts` | 環境変数ごとの料金所の設定テスト（`npx tsx scripts/config-test.ts`） |
 
 ## 変更履歴
+
+### v0.5（2026-11-16）
+
+- OpenSea（ERC-8257）用のマニフェストを `/.well-known/ai-tool/mint-check.json` で公開するようにした。OpenSea 公式 SDK の検証に通ることを確認済み。
+- POST（JSON 本文）でも呼べるようにした。支払いなしの POST にも402を返すことを確認済み。
+- テスト用に `@opensea/tool-sdk` を開発用の依存に追加した（本番の動作には使わない）。
 
 ### v0.4（2026-11-16）
 
