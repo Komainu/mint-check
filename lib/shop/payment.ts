@@ -9,6 +9,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { bazaarResourceServerExtension } from "@x402/extensions/bazaar";
 import { createFacilitatorConfig } from "@coinbase/x402";
 import { installFacilitatorLogging } from "./facilitator-log";
+import { attachSalesLog } from "./sales-log";
 
 export type Network = `${string}:${string}`;
 
@@ -55,6 +56,8 @@ export function buildResourceServer() {
   const server = new x402ResourceServer(client).register(network, new ExactEvmScheme());
   // Bazaar（カタログ）に載るための拡張。CDPのファシリテーターで決済が通ると自動で掲載される
   server.registerExtension(bazaarResourceServerExtension);
+  // 決済が成立するたびに Notion の売上記録へ1行書く（NOTION_TOKEN があるときだけ）
+  attachSalesLog(server);
   return server;
 }
 

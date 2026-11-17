@@ -1,4 +1,4 @@
-# AIエージェントの店（x402）v0.6
+# AIエージェントの店（x402）v0.7
 
 x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち、料金所・カタログ（Bazaar）登録・OpenSea（ERC-8257）のマニフェストは店の共通部分が受け持ちます。
 企画・成績・判断の記録は Notion の「AIエージェントの店（x402）」にあります。
@@ -49,6 +49,7 @@ npm test                                             # 全商品の検査
 | `lib/shop/payment.ts` | 料金所（ネットワーク・ファシリテーターの切り替え）。全商品で共有 |
 | `lib/shop/catalog.ts` | Bazaar 用のルート設定、OpenSea 用のマニフェスト |
 | `lib/shop/paid-route.ts` | 商品1つ分の有料API（GET・POST の入力読み取りを含む） |
+| `lib/shop/sales-log.ts` | 決済が成立するたびに Notion の売上記録へ1行書く（客への返事のあと） |
 | `lib/shop/facilitator-log.ts` | 決済の失敗時に詳細を Vercel のログへ（署名は書かない） |
 | `lib/shop/types.ts` | 商品の型 |
 | `lib/products/index.ts` | 商品の一覧 |
@@ -57,6 +58,7 @@ npm test                                             # 全商品の検査
 | `app/api/manifest/[slug]/route.ts` | マニフェスト |
 | `app/api/products/route.ts` | 商品一覧 |
 | `scripts/shop-test.ts` | 店全体の検査 |
+| `scripts/sales-test.ts` | 売上の記録の検査（決済の流れの中で1件書くこと、Notion が落ちても販売は成功すること） |
 | `scripts/selftest.ts` | Mint Check のチェック本体の検査（通信なし） |
 | `scripts/log-test.ts` | 失敗ログに署名が出ないことの検査 |
 | `scripts/new-product.ts` | 新しい商品のひな形 |
@@ -70,6 +72,9 @@ npm test                                             # 全商品の検査
 | `X402_NETWORK` | `eip155:8453`（本番）か `eip155:84532`（練習用） |
 | `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Coinbase のファシリテーター。本番では必須。値はチャットや GitHub に載せない |
 | `PRICE` | Mint Check の価格（未設定なら $0.02） |
+| `NOTION_TOKEN` | 売上の記録用の Notion のキー。入れると決済ごとに「売上記録」へ1行書く。値はチャットや GitHub に載せない |
+| `NOTION_SALES_DATA_SOURCE_ID` | 売上記録の data source ID（空なら既定値） |
+| `OWNER_ADDRESS` | 運営者自身の購入アドレス（空なら既定値）。この購入は区分「運営者」になる |
 | `BASE_RPC_URL` | 調査対象を読む RPC（空なら公開 RPC） |
 
 ## Mint Check の中身
@@ -90,7 +95,20 @@ Base の NFT コントラクトを、ミントや購入の前に調べます。`
 
 「買うべき／避けるべき」は返しません。capabilities は**よくある関数名との一致による推定**です。独自の名前の関数は見つけられないので、`false` は「見つからなかった」という意味です。
 
+## 売上の記録
+
+決済が成立するたびに、API自身が Notion の「売上記録」に1行書きます（日時・商品・購入者・区分・金額・取引）。Bazaar の統計の更新を待たずに売上を把握できます。
+
+- 書き込みは客への返事のあとで行うので、販売の速さは変わりません。
+- Notion に書けなかったときも販売は成功のままで、Vercel のログに `[sales-log]` として残ります。
+- `NOTION_TOKEN` が空なら何もしません。
+
 ## 変更履歴
+
+### v0.7（2026-11-18）
+
+- 売上の記録を追加。決済が成立するたびに Notion の「売上記録」へ1行書く（`lib/shop/sales-log.ts`）。`NOTION_TOKEN` を入れると動き始める。
+- 検査 `scripts/sales-test.ts` を追加し、`npm test` に含めた。Mint Check の出力（マニフェスト・402応答）は v0.5 から変わっていない。
 
 ### v0.6（2026-11-18）
 
