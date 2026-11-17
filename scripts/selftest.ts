@@ -1,7 +1,7 @@
 /** 通信なしでチェック本体を確かめる簡易テスト: npx tsx scripts/selftest.ts */
 import { createPublicClient, custom, encodeAbiParameters, toFunctionSelector, type Hex, type PublicClient } from "viem";
 import { base } from "viem/chains";
-import { hasSelector, minimalProxyTarget, parseTokenId, runMintCheck } from "../lib/checks";
+import { hasSelector, minimalProxyTarget, parseTokenId, runMintCheck } from "../lib/products/mint-check/checks";
 
 const NFT721 = "0x1111111111111111111111111111111111111111";
 const EOA = "0x2222222222222222222222222222222222222222";

@@ -1,5 +1,5 @@
 /** 失敗時のログに署名が出ないことを確かめる: npx tsx scripts/log-test.ts */
-import { installFacilitatorLogging } from "../lib/facilitator-log";
+import { installFacilitatorLogging } from "../lib/shop/facilitator-log";
 
 const logs: string[] = [];
 console.error = (...a: unknown[]) => logs.push(a.join(" "));

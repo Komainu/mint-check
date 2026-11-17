@@ -1,19 +1,82 @@
-# Mint Check（v0.5）
+# AIエージェントの店（x402）v0.6
 
-BaseのNFTコントラクトを、ミントや購入の前に調べる有料APIです。x402で1回ごとに課金します。
-この版は**練習用ネットワーク（Base Sepolia）で課金**するので、本物のお金は動きません。調べる対象はBase本番のコントラクトです。
+x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち、料金所・カタログ（Bazaar）登録・OpenSea（ERC-8257）のマニフェストは店の共通部分が受け持ちます。
+企画・成績・判断の記録は Notion の「AIエージェントの店（x402）」にあります。
+
+| 商品 | 有料API | 価格 | 状態 |
+|---|---|---|---|
+| Mint Check | `/api/mint-check` | 0.02 USDC | 販売中（Bazaar 掲載、OpenSea ツール番号933） |
+
+無料のページ:
+
+- `/api/products` … 商品の一覧（名前・説明・価格・マニフェストの場所）
+- `/.well-known/ai-tool/<slug>.json` … OpenSea 用のマニフェスト
+
+## 商品の呼び方
 
 ```
-GET /api/mint-check?address=0x調べたいコントラクト
-GET /api/mint-check?address=0x調べたいコントラクト&tokenId=1
-POST /api/mint-check   本文 {"address":"0x調べたいコントラクト","tokenId":"1"}
+GET  /api/<slug>?key=value
+POST /api/<slug>   本文 {"key":"value"}
 ```
 
-POST は OpenSea のツール一覧（ERC-8257）から呼ぶエージェント向けです。価格と中身は GET と同じです。
+支払いなしで呼ぶと 402 と値段が返ります。商品がエラー（400番台以上）を返したときは課金されません。
 
-`tokenId` は任意です。ERC-1155 は発行数をトークン番号ごとに持つので、発行数を読みたいときに指定します。
+## 新しい商品の足し方
 
-## 返すもの
+```bash
+npm run new-product -- holder-check "Holder Check"   # slug と、表示名から作るスラッグを一致させる
+# lib/products/holder-check/product.ts の TODO と run を書く
+npm test                                             # 全商品の検査
+```
+
+ひな形の本体は「未実装（501、課金なし）」を返します。中身を書くまで公開しないでください。
+
+検査（`npm test`）が確かめること:
+
+- 説明文が500文字以内（CDP が超過を拒否する）、表示名とタグがカタログの条件を満たす
+- マニフェストが OpenSea 公式の検証に通る、slug と OpenSea のスラッグが一致する
+- 支払いなしの GET・POST に 402 を返し、表示名・タグ・説明・価格が載る
+- **Mint Check の出力が OpenSea 登録時から1文字も変わっていない**（`scripts/fixtures/mint-check-v0.5.json` と照合）
+
+## 公開済み商品を変えるときの注意
+
+説明・タグ・入出力・価格、環境変数の `PAY_TO`・`X402_NETWORK`・`PRICE` はマニフェストに含まれ、そのハッシュが OpenSea に記録されています。変えると OpenSea の検証表示が外れるので、`manifest.version` を上げ、オンチェーンの記録も更新してください。Mint Check の場合は検査が失敗して知らせます。
+
+## 構成
+
+| ファイル | 役割 |
+|---|---|
+| `lib/shop/payment.ts` | 料金所（ネットワーク・ファシリテーターの切り替え）。全商品で共有 |
+| `lib/shop/catalog.ts` | Bazaar 用のルート設定、OpenSea 用のマニフェスト |
+| `lib/shop/paid-route.ts` | 商品1つ分の有料API（GET・POST の入力読み取りを含む） |
+| `lib/shop/facilitator-log.ts` | 決済の失敗時に詳細を Vercel のログへ（署名は書かない） |
+| `lib/shop/types.ts` | 商品の型 |
+| `lib/products/index.ts` | 商品の一覧 |
+| `lib/products/mint-check/` | Mint Check の定義（`product.ts`）とチェック本体（`checks.ts`） |
+| `app/api/<slug>/route.ts` | 商品ごとの有料API（3行） |
+| `app/api/manifest/[slug]/route.ts` | マニフェスト |
+| `app/api/products/route.ts` | 商品一覧 |
+| `scripts/shop-test.ts` | 店全体の検査 |
+| `scripts/selftest.ts` | Mint Check のチェック本体の検査（通信なし） |
+| `scripts/log-test.ts` | 失敗ログに署名が出ないことの検査 |
+| `scripts/new-product.ts` | 新しい商品のひな形 |
+| `scripts/check.ts` | Mint Check を支払いなしで試す（`npm run check -- 0x...`） |
+
+## 環境変数（Vercel）
+
+| 名前 | 内容 |
+|---|---|
+| `PAY_TO` | 売上を受け取るアドレス（必須） |
+| `X402_NETWORK` | `eip155:8453`（本番）か `eip155:84532`（練習用） |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | Coinbase のファシリテーター。本番では必須。値はチャットや GitHub に載せない |
+| `PRICE` | Mint Check の価格（未設定なら $0.02） |
+| `BASE_RPC_URL` | 調査対象を読む RPC（空なら公開 RPC） |
+
+## Mint Check の中身
+
+Base の NFT コントラクトを、ミントや購入の前に調べます。`tokenId` は任意で、ERC-1155 の発行数を読むときに指定します。
+
+### 返すもの
 
 | 項目 | 内容 |
 |---|---|
@@ -27,81 +90,14 @@ POST は OpenSea のツール一覧（ERC-8257）から呼ぶエージェント�
 
 「買うべき／避けるべき」は返しません。capabilities は**よくある関数名との一致による推定**です。独自の名前の関数は見つけられないので、`false` は「見つからなかった」という意味です。
 
-## 手順
-
-### 1. 手元でチェック本体だけ試す（支払いなし）
-
-```bash
-npm install
-npm run check -- 0x調べたいコントラクト
-npm run check -- 0x調べたいコントラクト 1   # ERC-1155 でトークン番号1の発行数も読む
-```
-
-結果のJSONが出れば、チェック本体は動いています。
-
-### 2. Vercelに公開する
-
-1. このフォルダをGitHubのリポジトリに上げ、Vercelで「New Project」から取り込む。
-2. Vercelの「Environment Variables」に次を入れる（`.env.example` と同じ内容）。
-   - `PAY_TO` … 売上を受け取る自分のアドレス（必須）
-   - `X402_NETWORK` … `eip155:84532`
-   - `FACILITATOR_URL` … `https://x402.org/facilitator`
-   - `PRICE` … `$0.02`
-3. デプロイする。
-
-### 3. 料金所が動いているか確かめる
-
-ブラウザで `https://あなたのドメイン/api/mint-check?address=0x...` を開きます。
-**「402 Payment Required」と値段の情報が返れば成功**です。支払っていないので、結果は返りません。
-
-### 4. 自分で買ってみる
-
-Base Sepolia のテスト用USDCを持ったウォレットから、x402に対応した買い手（Base MCPなど）でこのURLを呼びます。
-支払いが通って結果のJSONが返れば、フェーズ0は完了です。
-テスト用USDCはCoinbase Developer PlatformのFaucetで無料でもらえます。
-
-## 本番への切り替え（2段階）
-
-コードは変えず、Vercelの環境変数だけで切り替えます。CDPのAPIキーの値は**Vercelの環境変数にだけ**入れ、チャットやGitHubには載せないでください。
-
-### 段階A: 練習用ネットワークのまま、CDPのファシリテーターに切り替える
-
-1. Vercelの環境変数に `CDP_API_KEY_ID` と `CDP_API_KEY_SECRET` を追加する（`X402_NETWORK` は `eip155:84532` のまま）。
-2. 再デプロイし、もう一度テスト用USDCで1回買う。
-3. 結果が返れば、CDPの認証は通っています。失敗してもテスト用のお金しか動きません。
-
-### 段階B: 本番に切り替える
-
-1. `X402_NETWORK` を `eip155:8453` に変える。
-2. 再デプロイし、本物のUSDCで1回（0.02ドル）買う。
-3. 決済が通ると、Bazaar（カタログ）に自動で載ります。説明文と入出力の例は `lib/x402.ts` にあります。
-
-本番でCDPのキーが空のままだと、起動時にエラーを返して課金しないようにしてあります。
-
-## OpenSea（ERC-8257）への掲載
-
-- マニフェストを `https://mint-check.vercel.app/.well-known/ai-tool/mint-check.json` で公開しています（`lib/manifest.ts`）。
-- 登録は Base Account から、OpenSea のツール登録コントラクトへの取引で行います（次の作業）。
-- **登録後にマニフェストの中身を変えたら、オンチェーンの記録も更新が必要です。** 環境変数の `PAY_TO`・`X402_NETWORK`・`PRICE` もマニフェストに含まれるので、変えるときは要注意です。
-
-## ファイル
-
-| ファイル | 役割 |
-|---|---|
-| `lib/checks.ts` | チェック本体 |
-| `lib/x402.ts` | 料金所の設定とカタログ用の説明 |
-| `lib/manifest.ts` | OpenSea（ERC-8257）用のマニフェスト |
-| `lib/input.ts` | GET のクエリ・POST の JSON 本文から入力を読む |
-| `app/api/manifest/route.ts` | マニフェストを返す（無料） |
-| `app/api/mint-check/route.ts` | 有料API |
-| `scripts/check.ts` | 支払いなしで試すコマンド |
-| `scripts/selftest.ts` | 通信なしの簡易テスト（`npx tsx scripts/selftest.ts`） |
-| `scripts/log-test.ts` | 失敗ログに署名が出ないことのテスト |
-| `scripts/manifest-test.ts` | マニフェストを OpenSea 公式の検証関数で確かめるテスト |
-| `scripts/route-test.ts` | 402応答に表示名・タグ・パスが載るかのテスト |
-| `scripts/config-test.ts` | 環境変数ごとの料金所の設定テスト（`npx tsx scripts/config-test.ts`） |
-
 ## 変更履歴
+
+### v0.6（2026-11-18）
+
+- 店を「複数の商品を置ける店」に作り替えた。料金所・カタログ登録・マニフェストを共通部分（`lib/shop/`）にまとめ、商品は `lib/products/<slug>/` に置く形にした。
+- Mint Check の出力（マニフェスト・Bazaar のルート設定・402 応答）が v0.5 と1文字も変わっていないことを検査で確認。マニフェストのハッシュは OpenSea 登録時の値（`0x16eb240c…`）のまま。
+- 無料の商品一覧 `/api/products` を追加。マニフェストの場所を商品ごと（`/.well-known/ai-tool/<slug>.json`）にした。
+- 新しい商品のひな形を作る `npm run new-product` と、全商品をまとめて検査する `npm test` を追加。
 
 ### v0.5（2026-11-16）
 
@@ -144,9 +140,8 @@ Base Sepolia のテスト用USDCを持ったウォレットから、x402に対�
 
 ## この版の確認状況
 
-- 型チェック、ビルド、通信なしの簡易テスト（30項目）は通過済み。
-- Base 本番・CDP のファシリテーターでの支払いは確認済み（2026-11-16）。
-- 表示名とタグがBazaarに反映されるかは、公開後に確認が必要。
+- 型チェック、ビルド、全テストは通過済み。手元のサーバーで、配信されるマニフェストが登録時と同じバイト列であることを確認済み。
+- 公開後に、本番の 402 応答と OpenSea の検証表示が変わっていないことを確認する。
 
 ## 既知の制約
 

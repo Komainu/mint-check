@@ -2,7 +2,7 @@
  * 支払いなしでチェック本体だけを試す。
  *   npm run check -- 0xコントラクトアドレス [トークン番号]
  */
-import { isValidAddress, makeClient, parseTokenId, runMintCheck } from "../lib/checks";
+import { isValidAddress, makeClient, parseTokenId, runMintCheck } from "../lib/products/mint-check/checks";
 
 const address = process.argv[2] ?? null;
 if (!isValidAddress(address)) {

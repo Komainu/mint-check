@@ -1,12 +1,14 @@
 {
   "name": "mint-check",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check": "tsx scripts/check.ts"
+    "check": "tsx scripts/check.ts",
+    "test": "tsx scripts/shop-test.ts && tsx scripts/selftest.ts && tsx scripts/log-test.ts",
+    "new-product": "tsx scripts/new-product.ts"
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.62.0",
