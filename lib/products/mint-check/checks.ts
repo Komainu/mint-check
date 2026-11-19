@@ -15,6 +15,7 @@ import {
   type PublicClient,
 } from "viem";
 import { base } from "viem/chains";
+import { readExtras, ROYALTY_SETTERS, type InsiderHoldings, type MetadataInfo, type RolesInfo, type RoyaltyInfo } from "./extras";
 
 // ---------- 型 ----------
 
@@ -45,6 +46,10 @@ export interface MintCheckResult {
     ownerKind: OwnerKind;
     /** オーナーが複数人管理（Safe）だった場合の内訳。例: 3人中2人の承認が必要 */
     multisig: { type: "safe"; threshold: number; ownerCount: number } | null;
+    /** v0.9: ERC-2981 のロイヤルティ受取人（あれば） */
+    royalty: RoyaltyInfo | null;
+    /** v0.9: AccessControl の権限と持ち主（あれば） */
+    roles: RolesInfo | null;
   };
   mint: {
     /** ERC-1155 では tokenId を指定したときだけ読める */
@@ -54,6 +59,8 @@ export interface MintCheckResult {
     /** 標準の型と一致したときだけ埋まる */
     knownType: "seadrop" | "thirdweb" | null;
     knownTypeDetail: string | null;
+    /** v0.9: オーナー・作成者が持っている枚数（事前ミントやチーム分） */
+    insiderHoldings: InsiderHoldings | null;
   };
   /** バイトコードから見つかった「オーナーが使えそうな操作」。関数名の一致による推定 */
   capabilities: {
@@ -62,7 +69,11 @@ export interface MintCheckResult {
     canPauseTransfers: boolean | null;
     hasWithdraw: boolean | null;
     hasOwnerMint: boolean | null;
+    /** v0.9 */
+    canChangeRoyalty: boolean | null;
     matchedFunctions: string[];
+    /** v0.9: 画像（メタデータ）の置き場所と凍結 */
+    metadata: MetadataInfo | null;
   };
   flags: { code: string; note: string }[];
   notMeasured: { item: string; reason: string }[];
@@ -277,13 +288,14 @@ export async function runMintCheck(
       implementation: null,
       proxyAdmin: null,
     },
-    control: { owner: null, ownerKind: null, multisig: null },
+    control: { owner: null, ownerKind: null, multisig: null, royalty: null, roles: null },
     mint: {
       tokenId: opts.tokenId != null ? opts.tokenId.toString() : null,
       totalSupply: null,
       maxSupply: null,
       knownType: null,
       knownTypeDetail: null,
+      insiderHoldings: null,
     },
     capabilities: {
       canChangeMetadata: null,
@@ -291,7 +303,9 @@ export async function runMintCheck(
       canPauseTransfers: null,
       hasWithdraw: null,
       hasOwnerMint: null,
+      canChangeRoyalty: null,
       matchedFunctions: [],
+      metadata: null,
     },
     flags,
     notMeasured,
@@ -497,7 +511,9 @@ export async function runMintCheck(
     canPauseTransfers: groups.pause.length > 0,
     hasWithdraw: groups.withdraw.length > 0,
     hasOwnerMint: groups.ownerMint.length > 0,
+    canChangeRoyalty: null,
     matchedFunctions: Object.values(groups).flat(),
+    metadata: null,
   };
   if (groups.metadata.length) {
     flags.push({ code: "METADATA_CHANGEABLE", note: "Functions that change metadata/images exist." });
@@ -511,6 +527,31 @@ export async function runMintCheck(
   if (groups.ownerMint.length) {
     flags.push({ code: "OWNER_MINT", note: "Functions for privileged extra minting exist." });
   }
+  // 8. v0.9 の追加点検（メタデータ・ロイヤルティ・権限・保有枚数）
+  const extras = await readExtras({
+    client,
+    address,
+    standard: result.basics.standard,
+    tokenId: opts.tokenId,
+    owner: result.control.owner,
+    ownerRenounced: result.control.ownerKind === "renounced",
+    deployer: result.basics.deployer,
+    totalSupply: result.mint.totalSupply,
+    hasFunction: sig => hasSelector(logicCode, sig),
+    flags,
+    notMeasured,
+  });
+  result.capabilities.metadata = extras.metadata;
+  result.capabilities.canChangeRoyalty = extras.canChangeRoyalty;
+  if (extras.canChangeRoyalty) {
+    result.capabilities.matchedFunctions.push(
+      ...ROYALTY_SETTERS.filter(sig => hasSelector(logicCode, sig)).map(sig => sig.replace("function ", "")),
+    );
+  }
+  result.control.royalty = extras.royalty;
+  result.control.roles = extras.roles;
+  result.mint.insiderHoldings = extras.insiderHoldings;
+
   notMeasured.push({
     item: "capabilities.completeness",
     reason:

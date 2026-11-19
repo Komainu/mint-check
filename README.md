@@ -1,4 +1,4 @@
-# AIエージェントの店（x402）v0.8
+# AIエージェントの店（x402）v0.9
 
 x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち、料金所・カタログ（Bazaar）登録・OpenSea（ERC-8257）のマニフェストは店の共通部分が受け持ちます。
 企画・成績・判断の記録は Notion の「AIエージェントの店（x402）」にあります。
@@ -95,6 +95,10 @@ Base の NFT コントラクトを、ミントや購入の前に調べます。`
 | capabilities | 画像の差し替え、発行数や価格の変更、停止、引き出し、追加発行の関数があるか |
 | flags | 上の結果から立った注意点 |
 | notMeasured | 測れなかった項目とその理由 |
+| capabilities.metadata（v0.9） | 画像（メタデータ）の置き場所（onchain_data／ipfs／arweave／web）と凍結済みか |
+| control.royalty（v0.9） | ERC-2981 のロイヤルティ受取人（単独の鍵かコントラクトか）と率。`capabilities.canChangeRoyalty` で変更関数の有無 |
+| control.roles（v0.9） | AccessControl の権限（DEFAULT_ADMIN／MINTER／METADATA／PAUSER）の持ち主。列挙できる場合のみ最大5人 |
+| mint.insiderHoldings（v0.9） | オーナー・作成者が持っている枚数と、発行数に対する割合 |
 
 「買うべき／避けるべき」は返しません。capabilities は**よくある関数名との一致による推定**です。独自の名前の関数は見つけられないので、`false` は「見つからなかった」という意味です。
 
@@ -126,6 +130,11 @@ Base の NFT コントラクトを、ミントや購入の前に調べます。`
 - `NOTION_TOKEN` が空なら何もしません。
 
 ## 変更履歴
+
+### v0.9（2026-11-20）
+
+- Mint Check に4つの点検を追加（`lib/products/mint-check/extras.ts`）。Surf の「2026年のBaseの手口」調査で、未対応だった項目を埋めた。新しい注意フラグ: `METADATA_ON_WEB_SERVER`・`ROYALTY_CHANGEABLE`・`ROLE_HELD_BY_SINGLE_KEY`・`ROLES_REMAIN_AFTER_RENOUNCE`・`INSIDERS_HOLD_LARGE_SHARE`。
+- 返す中身に足しただけで、説明文・マニフェスト・Bazaar の例は変えていない。OpenSea のハッシュ（ツール番号933）はそのまま有効（ゴールデンテストで確認）。
 
 ### v0.8（2026-11-19）
 
