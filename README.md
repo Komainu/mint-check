@@ -6,7 +6,7 @@ x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち
 | 商品 | 有料API | 価格 | 状態 |
 |---|---|---|---|
 | Mint Check | `/api/mint-check` | 0.02 USDC | 販売中（Bazaar 掲載、OpenSea ツール番号933） |
-| x402 Seller Check | `/api/x402-seller-check` | 0.01 USDC | 試作（2026-11-19）。Bazaar・OpenSea は未登録 |
+| x402 Seller Check | `/api/x402-seller-check` | 0.01 USDC | 販売中（2026-11-19 公開、Bazaar 掲載、OpenSea ツール番号945） |
 
 無料のページ:
 
@@ -129,7 +129,7 @@ Base の NFT コントラクトを、ミントや購入の前に調べます。`
 
 ### v0.8（2026-11-19）
 
-- 2号商品 x402 Seller Check を追加（`lib/products/x402-seller-check/`）。Mint Check の説明・価格・マニフェストは変更なし（ゴールデンテストで確認）。
+- 2号商品 x402 Seller Check を追加し公開。OpenSea にツール番号945で登録（マニフェストのハッシュ 0xfa1935d1…11e5）（`lib/products/x402-seller-check/`）。Mint Check の説明・価格・マニフェストは変更なし（ゴールデンテストで確認）。
 - テスト `scripts/seller-check-test.ts` を追加。Mint Check の本物の 402、実在の店から支払いなしで取得した条件、Mint Check 開発中に実際に起きた失敗（説明文 500 文字超、EIP-712 名の不一致）を再現して確かめる。
 
 ### v0.7（2026-11-18）
