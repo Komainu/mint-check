@@ -103,8 +103,16 @@ export function classifyUri(uri: string): MetadataInfo["location"] {
   return "other";
 }
 
+/** 公開RPCは一度に多く送ると断ることがあるので、大事な読み取りは少し待って1回だけやり直す */
+async function readTwice<T>(fn: () => Promise<T>): Promise<T | null> {
+  const first = await tryRead(fn);
+  if (first !== null) return first;
+  await new Promise(r => setTimeout(r, 400));
+  return tryRead(fn);
+}
+
 async function kindOf(client: PublicClient, a: Address): Promise<HolderKind | null> {
-  const code = await tryRead(() => client.getCode({ address: a }));
+  const code = await readTwice(() => client.getCode({ address: a }));
   if (code === null) return null;
   // EIP-7702 で委任された普通のアドレスも、鍵1本で動かせるので single_key
   if (!code || code === "0x" || code.toLowerCase().startsWith("0xef0100")) return "single_key";
@@ -118,6 +126,8 @@ export async function readExtras(args: {
   tokenId?: bigint;
   owner: Address | null;
   ownerRenounced: boolean;
+  /** オーナーの種類（すでに調べ済みなら使い回す） */
+  ownerKind?: HolderKind | null;
   deployer: Address | null;
   totalSupply: string | null;
   hasFunction: (signature: string) => boolean;
@@ -138,18 +148,32 @@ export async function readExtras(args: {
   // --- 1. メタデータの置き場所（読み取りはまとめて並行に） ---
   const candidates = tokenId != null ? [tokenId] : [1n, 0n];
   const uriFn = standard === "ERC-1155" ? "uri" : "tokenURI";
-  const [uris, freezes, is2981, isAC, isEnum] = await Promise.all([
-    Promise.all(candidates.map(id => read(uriFn, [id]) as Promise<string | null>)),
-    Promise.all(FREEZE_GETTERS.map(g => read(g) as Promise<boolean | null>)),
+  // 凍結の読み取り関数は、コードに実在するものだけ呼ぶ（無駄な問い合わせで公開RPCに断られないため）
+  const freezeGetters = FREEZE_GETTERS.filter(g => args.hasFunction(`function ${g}()`));
+  const usesAccessControl = args.hasFunction("function hasRole(bytes32,address)");
+  const [is2981, isAC, isEnum] = await Promise.all([
     supports(IFACE_ERC2981),
-    supports(IFACE_ACCESS_CONTROL),
-    supports(IFACE_ACCESS_CONTROL_ENUMERABLE),
+    usesAccessControl ? supports(IFACE_ACCESS_CONTROL) : Promise.resolve(null),
+    usesAccessControl ? supports(IFACE_ACCESS_CONTROL_ENUMERABLE) : Promise.resolve(null),
   ]);
-  const hit = uris.findIndex(v => typeof v === "string" && v.length > 0);
-  const sampleTokenId: bigint | null = hit >= 0 ? candidates[hit] : null;
-  const uri: string | null = hit >= 0 ? (uris[hit] as string) : null;
-  const frozenHit = freezes.find(v => typeof v === "boolean");
-  const frozen: boolean | null = typeof frozenHit === "boolean" ? frozenHit : null;
+  let sampleTokenId: bigint | null = null;
+  let uri: string | null = null;
+  for (const id of candidates) {
+    const v = (await read(uriFn, [id])) as string | null;
+    if (typeof v === "string" && v.length > 0) {
+      sampleTokenId = id;
+      uri = v;
+      break;
+    }
+  }
+  let frozen: boolean | null = null;
+  for (const g of freezeGetters) {
+    const v = (await read(g)) as boolean | null;
+    if (typeof v === "boolean") {
+      frozen = v;
+      break;
+    }
+  }
   const location = uri ? classifyUri(uri) : null;
   const metadata: MetadataInfo = {
     sampleTokenId: sampleTokenId != null ? sampleTokenId.toString() : null,
@@ -177,7 +201,12 @@ export async function readExtras(args: {
   if (is2981) {
     const r = (await read("royaltyInfo", [sampleTokenId ?? 1n, 10_000n])) as readonly [Address, bigint] | null;
     if (r && r[0] && !/^0x0{40}$/i.test(r[0])) {
-      royalty = { receiver: getAddress(r[0]), receiverKind: await kindOf(client, r[0]), bps: Number(r[1]) };
+      const sameAsOwner = args.owner && r[0].toLowerCase() === args.owner.toLowerCase() && args.ownerKind;
+      royalty = {
+        receiver: getAddress(r[0]),
+        receiverKind: sameAsOwner ? args.ownerKind! : await kindOf(client, r[0]),
+        bps: Number(r[1]),
+      };
     } else if (!r) {
       notMeasured.push({ item: "control.royalty", reason: "Reports ERC-2981 but royaltyInfo() could not be read." });
     }
@@ -221,14 +250,13 @@ export async function readExtras(args: {
     if (!a || /^0x0{40}$/i.test(a)) return null;
     if (standard === "ERC-1155") {
       if (tokenId == null) return null;
-      return tryRead(() => client.readContract({ address, abi: BALANCE_1155_ABI, functionName: "balanceOf", args: [a, tokenId] }));
+      return readTwice(() => client.readContract({ address, abi: BALANCE_1155_ABI, functionName: "balanceOf", args: [a, tokenId] }));
     }
-    return (await read("balanceOf", [a])) as bigint | null;
+    return readTwice(() => client.readContract({ address, abi: ABI, functionName: "balanceOf", args: [a] } as never)) as Promise<bigint | null>;
   };
-  const [ownerBal, deployerBal] = await Promise.all([
-    holdingOf(args.ownerRenounced ? null : args.owner),
-    args.deployer && args.deployer.toLowerCase() !== args.owner?.toLowerCase() ? holdingOf(args.deployer) : Promise.resolve(null),
-  ]);
+  const ownerBal = await holdingOf(args.ownerRenounced ? null : args.owner);
+  const deployerBal =
+    args.deployer && args.deployer.toLowerCase() !== args.owner?.toLowerCase() ? await holdingOf(args.deployer) : null;
   const supply = args.totalSupply != null ? BigInt(args.totalSupply) : null;
   const insiders = (ownerBal ?? 0n) + (deployerBal ?? 0n);
   const share = supply && supply > 0n && (ownerBal != null || deployerBal != null) ? Number((insiders * 10_000n) / supply) / 10_000 : null;

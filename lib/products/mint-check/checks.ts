@@ -535,6 +535,8 @@ export async function runMintCheck(
     tokenId: opts.tokenId,
     owner: result.control.owner,
     ownerRenounced: result.control.ownerKind === "renounced",
+    ownerKind:
+      result.control.ownerKind === "single_key" || result.control.ownerKind === "contract" ? result.control.ownerKind : null,
     deployer: result.basics.deployer,
     totalSupply: result.mint.totalSupply,
     hasFunction: sig => hasSelector(logicCode, sig),

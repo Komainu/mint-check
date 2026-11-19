@@ -40,6 +40,7 @@ const world: Record<string, { code: Hex; calls: Record<string, Hex> }> = {
       "function withdraw()",
       "function updateAllowedSeaDrop(address[])",
       "function getMintStats(address)",
+      "function metadataFrozen()",
     ]),
     calls: {
       [SUPPORTS + IFACE_721]: bool(true),
@@ -59,7 +60,7 @@ const world: Record<string, { code: Hex; calls: Record<string, Hex> }> = {
     },
   },
   [NFT_RENOUNCED]: {
-    code: fakeCode(["function setDefaultRoyalty(address,uint96)", "function setBaseURI(string)"]),
+    code: fakeCode(["function setDefaultRoyalty(address,uint96)", "function setBaseURI(string)", "function hasRole(bytes32,address)"]),
     calls: {
       [SUPPORTS + IFACE_721]: bool(true),
       [SUPPORTS + IFACE_1155]: bool(false),
@@ -101,6 +102,8 @@ const world: Record<string, { code: Hex; calls: Record<string, Hex> }> = {
   [PLAIN_CONTRACT]: { code: "0x6080", calls: {} },
 };
 
+const flakyOnce = new Set<string>([sel("function balanceOf(address)") + "0".repeat(24) + EOA.slice(2).toLowerCase()]);
+
 const client = createPublicClient({
   chain: base,
   transport: custom({
@@ -110,6 +113,11 @@ const client = createPublicClient({
       if (method === "eth_call") {
         const entry = world[params[0].to.toLowerCase()];
         const data: string = params[0].data.slice(2);
+        // 公開RPCに一度断られる状況を再現（1回目だけ失敗）
+        if (flakyOnce.has(data)) {
+          flakyOnce.delete(data);
+          throw new Error("429 Too Many Requests");
+        }
         const answer = entry?.calls[data];
         if (answer) return answer;
         throw new Error("execution reverted");
@@ -192,6 +200,7 @@ const notMeasured = (r: Awaited<ReturnType<typeof runMintCheck>>, item: string) 
   expect("721: no web-server flag", !a.flags.some(x => x.code === "METADATA_ON_WEB_SERVER"));
   expect("721: royalty to Safe 5%", a.control.royalty?.bps === 500 && a.control.royalty.receiverKind === "contract");
   expect("721: royalty not changeable", a.capabilities.canChangeRoyalty === false);
+  expect("721: balance read survives one RPC refusal", flakyOnce.size === 0 && a.mint.insiderHoldings?.owner === "40");
   expect("721: owner holds 40", a.mint.insiderHoldings?.owner === "40" && Math.abs((a.mint.insiderHoldings.shareOfSupply ?? 0) - 0.3333) < 0.001);
   expect("721: flag INSIDERS_HOLD_LARGE_SHARE", a.flags.some(x => x.code === "INSIDERS_HOLD_LARGE_SHARE"));
   expect("721: no AccessControl", a.control.roles === null);

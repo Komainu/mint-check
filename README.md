@@ -133,6 +133,7 @@ Base の NFT コントラクトを、ミントや購入の前に調べます。`
 
 ### v0.9（2026-11-20）
 
+- 本番の試し買い（Quacked Ops）で、公開RPCに読み取りを断られ保有枚数などが空になる問題を見つけて修正。コードにある関数だけ問い合わせ、大事な読み取りは1回やり直す。
 - Mint Check に4つの点検を追加（`lib/products/mint-check/extras.ts`）。Surf の「2026年のBaseの手口」調査で、未対応だった項目を埋めた。新しい注意フラグ: `METADATA_ON_WEB_SERVER`・`ROYALTY_CHANGEABLE`・`ROLE_HELD_BY_SINGLE_KEY`・`ROLES_REMAIN_AFTER_RENOUNCE`・`INSIDERS_HOLD_LARGE_SHARE`。
 - 返す中身に足しただけで、説明文・マニフェスト・Bazaar の例は変えていない。OpenSea のハッシュ（ツール番号933）はそのまま有効（ゴールデンテストで確認）。
 
