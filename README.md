@@ -1,4 +1,4 @@
-# AIエージェントの店（x402）v0.10
+# AIエージェントの店（x402）v0.11
 
 x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち、料金所・カタログ（Bazaar）登録・OpenSea（ERC-8257）のマニフェストは店の共通部分が受け持ちます。
 企画・成績・判断の記録は Notion の「AIエージェントの店（x402）」にあります。
@@ -143,6 +143,11 @@ B20 の役割（発行・停止・没収の担当者）はチェーン上で列�
 - `NOTION_TOKEN` が空なら何もしません。
 
 ## 変更履歴
+
+### v0.11（2026-11-21）
+
+- Tokenized Stock Check: 価格フィードの時間を修正。Chainlink の株価フィードは日曜20:00〜金曜20:00（NY）に時間外も含めて動くので、価格が止まるのは週末だけ。`market` に `feedWindowOpen` と `session`（regular／extended／weekend）を出し、`US_MARKET_CLOSED` を `PRICE_FEED_FROZEN_WEEKEND` に置き換え。送る側と受け取る側が同じポリシーのとき注意を1回にまとめた。説明文・マニフェストは不変。
+- 商品一覧を x402 の検索サービス向けに公開: `/openapi.json`（各操作に `x-payment-info` と 402 応答）と `/.well-known/x402`。`PRODUCTS` から自動生成（`lib/shop/discovery.ts`、テスト `scripts/discovery-test.ts`）。
 
 ### v0.10（2026-11-20）
 

@@ -178,11 +178,19 @@ const has = (r: any, code: string) => r.flags.some((f: any) => f.code === code);
 
 async function main() {
   console.log("## 1. 米国市場の時間");
-  expect("木曜 NY 10:00 は開いている", usMarketSession(NOW_OPEN).open === true && usMarketSession(NOW_OPEN).session === "regular");
-  expect("木曜 NY 17:30 は閉まっている", usMarketSession(NOW_CLOSED).session === "closed");
-  expect("土曜は weekend", usMarketSession(NOW_WEEKEND).session === "weekend");
-  expect("NY 9:29 は閉まっている", usMarketSession(new Date("2026-11-19T14:29:00Z")).open === false);
-  expect("夏時間（7月）の NY 9:30 は開いている", usMarketSession(new Date("2026-07-15T13:30:00Z")).open === true);
+  const m1 = usMarketSession(NOW_OPEN);
+  expect("木曜 NY 10:00 は通常取引中", m1.open === true && m1.session === "regular" && m1.feedWindowOpen === true);
+  const m2 = usMarketSession(NOW_CLOSED);
+  expect("木曜 NY 17:30 は時間外（フィードは動く）", m2.open === false && m2.session === "extended" && m2.feedWindowOpen === true);
+  const m3 = usMarketSession(NOW_WEEKEND);
+  expect("土曜は weekend（フィード停止）", m3.session === "weekend" && m3.feedWindowOpen === false);
+  expect("NY 9:29 は時間外", usMarketSession(new Date("2026-11-19T14:29:00Z")).session === "extended");
+  expect("夏時間（7月）の NY 9:30 は通常取引", usMarketSession(new Date("2026-07-15T13:30:00Z")).open === true);
+  expect("金曜 NY 19:59 はフィードが動く", usMarketSession(new Date("2026-11-21T00:59:00Z")).feedWindowOpen === true);
+  expect("金曜 NY 20:00 でフィード停止", usMarketSession(new Date("2026-11-21T01:00:00Z")).feedWindowOpen === false);
+  expect("日曜 NY 19:59 はまだ停止", usMarketSession(new Date("2026-11-23T00:59:00Z")).feedWindowOpen === false);
+  expect("日曜 NY 20:00 でフィード再開", usMarketSession(new Date("2026-11-23T01:00:00Z")).feedWindowOpen === true && usMarketSession(new Date("2026-11-23T01:00:00Z")).session === "extended");
+  expect("月曜 NY 3:00（夜間）はフィードが動く", usMarketSession(new Date("2026-11-23T08:00:00Z")).feedWindowOpen === true);
 
   console.log("\n## 2. Coinbase（B20）NVDAc");
   const a: any = await runStockCheck(NVDAC, { client, now: () => NOW_OPEN });
@@ -198,15 +206,28 @@ async function main() {
   expect("没収が設定済み（policy 129、管理者はコントラクト）", a.controls.seizePolicy.policyId === "129" && a.controls.seizePolicy.adminKind === "contract" && has(a, "SEIZE_CONFIGURED"));
   expect("Chainlink 価格 143.54", Math.abs((a.price?.answerUsd ?? 0) - 143.54) < 0.01 && a.price.ageSeconds === 3600);
   expect("開場中で1時間前の更新は古くない", !has(a, "PRICE_FEED_STALE"));
-  expect("開場中は休場の注意なし", !has(a, "US_MARKET_CLOSED") && a.market.open === true);
+  expect("開場中は週末停止の注意なし", !has(a, "PRICE_FEED_FROZEN_WEEKEND") && a.market.open === true);
   expect("役割は列挙できないと書く", a.notMeasured.some((n: any) => n.item === "controls.roles"));
 
   feedUpdatedAt = sec(NOW_OPEN) - 3n * 86400n;
   const stale: any = await runStockCheck(NVDAC, { client, now: () => NOW_OPEN });
   expect("開場中に3日前の価格は PRICE_FEED_STALE", has(stale, "PRICE_FEED_STALE"));
   const weekend: any = await runStockCheck(NVDAC, { client, now: () => NOW_WEEKEND });
-  expect("週末は古くても STALE にしない", !has(weekend, "PRICE_FEED_STALE") && has(weekend, "US_MARKET_CLOSED"));
+  expect("週末は古くても STALE にしない", !has(weekend, "PRICE_FEED_STALE") && has(weekend, "PRICE_FEED_FROZEN_WEEKEND"));
+  const extendedStale: any = await runStockCheck(NVDAC, { client, now: () => NOW_CLOSED });
+  expect("平日の時間外でも3日前の価格は STALE", has(extendedStale, "PRICE_FEED_STALE") && !has(extendedStale, "PRICE_FEED_FROZEN_WEEKEND"));
   feedUpdatedAt = sec(NOW_OPEN) - 3600n;
+
+  const flagCount = (r: any, code: string) => r.flags.filter((f: any) => f.code === code).length;
+  {
+    // 本番の NVDAc と同じく、受け取る側も同じ policy 5 の場合
+    const orig = world[NVDAC].calls;
+    world[NVDAC].calls = () => ({ ...orig(), [call("policyId", [S_RECV])]: ret(["uint64"], [5n]) });
+    const same: any = await runStockCheck(NVDAC, { client, now: () => NOW_OPEN });
+    world[NVDAC].calls = orig;
+    expect("同じポリシーなら注意は1回", flagCount(same, "ISSUER_CAN_BLOCK_ADDRESSES") === 1 && flagCount(same, "BLOCKLIST_ADMIN_SINGLE_KEY") === 1);
+    expect("注意に両方の範囲を書く", same.flags.find((f: any) => f.code === "ISSUER_CAN_BLOCK_ADDRESSES").note.includes("TRANSFER_SENDER_POLICY and TRANSFER_RECEIVER_POLICY"));
+  }
 
   console.log("\n## 3. 止まっている B20（許可リスト型）");
   const p: any = await runStockCheck(PAUSED_B20, { client, now: () => NOW_CLOSED });
@@ -215,7 +236,7 @@ async function main() {
   expect("上限 1000", p.controls.supplyCap === "1000");
   expect("没収なし", !has(p, "SEIZE_CONFIGURED"));
   expect("知らない銘柄の価格は測れないと書く", p.price === null && p.notMeasured.some((n: any) => n.item === "price"));
-  expect("閉場中は休場の注意", has(p, "US_MARKET_CLOSED"));
+  expect("平日の時間外は週末停止の注意を出さない", !has(p, "PRICE_FEED_FROZEN_WEEKEND") && p.market.session === "extended");
 
   console.log("\n## 4. Dinari AAPL");
   const d: any = await runStockCheck(DINARI, { client, now: () => NOW_OPEN });

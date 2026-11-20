@@ -102,8 +102,19 @@ async function kindOf(client: PublicClient, a: Address): Promise<HolderKind | nu
   return "contract";
 }
 
-/** 米国株の通常取引時間（ニューヨーク時間 月〜金 9:30〜16:00）。祝日は見ない */
-export function usMarketSession(now: Date): { open: boolean; session: "regular" | "closed" | "weekend"; newYorkTime: string } {
+/**
+ * 米国株の時間。2つを分けて返す（2026-11-21 修正）:
+ *   - 通常取引（regular）: ニューヨーク時間 月〜金 9:30〜16:00
+ *   - Chainlink の株価フィードが動く時間（feedWindowOpen）: 日曜 20:00 〜 金曜 20:00
+ *     時間外・夜間取引も含むので、価格が本当に止まるのは週末（と祝日）だけ
+ * 祝日は見ない。
+ */
+export function usMarketSession(now: Date): {
+  open: boolean;
+  session: "regular" | "extended" | "weekend";
+  feedWindowOpen: boolean;
+  newYorkTime: string;
+} {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
@@ -120,10 +131,13 @@ export function usMarketSession(now: Date): { open: boolean; session: "regular" 
   );
   const hour = Number(parts.hour) % 24;
   const minutes = hour * 60 + Number(parts.minute);
-  const newYorkTime = `${parts.year}-${parts.month}-${parts.day} ${String(hour).padStart(2, "0")}:${parts.minute} ${parts.weekday}`;
-  if (parts.weekday === "Sat" || parts.weekday === "Sun") return { open: false, session: "weekend", newYorkTime };
-  const open = minutes >= 9 * 60 + 30 && minutes < 16 * 60;
-  return { open, session: open ? "regular" : "closed", newYorkTime };
+  const day = parts.weekday as string;
+  const newYorkTime = `${parts.year}-${parts.month}-${parts.day} ${String(hour).padStart(2, "0")}:${parts.minute} ${day}`;
+  const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(day);
+  const open = weekday && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  const feedWindowOpen =
+    ["Mon", "Tue", "Wed", "Thu"].includes(day) || (day === "Fri" && minutes < 20 * 60) || (day === "Sun" && minutes >= 20 * 60);
+  return { open, session: open ? "regular" : feedWindowOpen ? "extended" : "weekend", feedWindowOpen, newYorkTime };
 }
 
 type PolicyInfo = { scope: string; policyId: string; openByDefault: boolean | null; admin: Address | null; adminKind: HolderKind | null } | null;
@@ -188,9 +202,15 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
   };
 
   const market = usMarketSession(now);
-  notMeasured.push({ item: "market.holidays", reason: "US market holidays and early closes are not checked; only weekday 9:30-16:00 New York time." });
-  if (!market.open) {
-    flags.push({ code: "US_MARKET_CLOSED", note: `US equity market is closed (${market.session}). Prices on-chain hold the last close; DEX prices can drift from it.` });
+  notMeasured.push({
+    item: "market.holidays",
+    reason: "US market holidays and early closes are not checked (regular session: weekdays 9:30-16:00 New York; price feed: Sunday 20:00 to Friday 20:00 New York).",
+  });
+  if (!market.feedWindowOpen) {
+    flags.push({
+      code: "PRICE_FEED_FROZEN_WEEKEND",
+      note: "Weekend: on-chain price feeds hold Friday 20:00 New York values until Sunday 20:00. DEX prices can drift from them, and lending positions can be liquidated in a gap when feeds reopen.",
+    });
   }
 
   // ---------- Coinbase（B20） ----------
@@ -207,15 +227,21 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
     const transferSender = await readPolicy(client, address, "TRANSFER_SENDER_POLICY");
     const transferReceiver = await readPolicy(client, address, "TRANSFER_RECEIVER_POLICY");
     const seize = await readPolicy(client, address, "SEIZE_EXEMPT_POLICY");
+    const seenPolicies = new Set<string>();
     for (const p of [transferSender, transferReceiver]) {
       if (!p || p.policyId === "0") continue;
+      // 送る側と受け取る側が同じポリシーなら、注意は1回だけ出す
+      if (seenPolicies.has(p.policyId)) continue;
+      seenPolicies.add(p.policyId);
+      const both = transferSender?.policyId === transferReceiver?.policyId;
+      const scopeLabel = both ? "TRANSFER_SENDER_POLICY and TRANSFER_RECEIVER_POLICY" : p.scope;
       if (p.openByDefault === false) {
-        flags.push({ code: "TRANSFERS_ALLOWLIST_ONLY", note: `${p.scope}: only listed addresses can send or receive.` });
+        flags.push({ code: "TRANSFERS_ALLOWLIST_ONLY", note: `${scopeLabel}: only listed addresses can send or receive.` });
       } else {
-        flags.push({ code: "ISSUER_CAN_BLOCK_ADDRESSES", note: `${p.scope}: policy ${p.policyId} can block individual addresses from transferring.` });
+        flags.push({ code: "ISSUER_CAN_BLOCK_ADDRESSES", note: `${scopeLabel}: policy ${p.policyId} can block individual addresses from transferring.` });
       }
       if (p.adminKind === "single_key") {
-        flags.push({ code: "BLOCKLIST_ADMIN_SINGLE_KEY", note: `${p.scope}: the policy admin is a single key.` });
+        flags.push({ code: "BLOCKLIST_ADMIN_SINGLE_KEY", note: `${scopeLabel}: the policy admin is a single key.` });
       }
     }
     if (seize && seize.policyId !== "0") {
@@ -244,10 +270,10 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
           answerUsd: Number(round[1]) / 1e8,
           updatedAt: new Date(updatedAt * 1000).toISOString(),
           ageSeconds,
-          note: "Total-return value (underlying price x multiplier). 24/5; holds the last value off-hours and during corporate-action pauses.",
+          note: "Total-return value (underlying price x multiplier). Updates Sunday 20:00 to Friday 20:00 New York including extended hours; holds the last value on weekends and during corporate-action pauses.",
         };
-        if (market.open && ageSeconds > 26 * 3600) {
-          flags.push({ code: "PRICE_FEED_STALE", note: `Market is open but the Chainlink feed was last updated ${Math.round(ageSeconds / 3600)} h ago (heartbeat 24 h). It may be frozen for a corporate action.` });
+        if (market.feedWindowOpen && ageSeconds > 26 * 3600) {
+          flags.push({ code: "PRICE_FEED_STALE", note: `The feed should be updating now but was last updated ${Math.round(ageSeconds / 3600)} h ago (heartbeat 24 h). It may be frozen for a corporate action.` });
         }
       } else {
         notMeasured.push({ item: "price", reason: "The Chainlink feed for this ticker could not be read or did not match." });
