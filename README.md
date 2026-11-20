@@ -7,7 +7,7 @@ x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち
 |---|---|---|---|
 | Mint Check | `/api/mint-check` | 0.02 USDC | 販売中（Bazaar 掲載、OpenSea ツール番号933） |
 | x402 Seller Check | `/api/x402-seller-check` | 0.01 USDC | 販売中（2026-11-19 公開、Bazaar 掲載、OpenSea ツール番号945） |
-| Tokenized Stock Check | `/api/tokenized-stock-check` | 0.01 USDC | 試作（2026-11-20）。Bazaar・OpenSea は未登録 |
+| Tokenized Stock Check | `/api/tokenized-stock-check` | 0.01 USDC | 販売中（2026-11-21 公開、OpenSea ツール番号946） |
 
 無料のページ:
 
@@ -146,7 +146,7 @@ B20 の役割（発行・停止・没収の担当者）はチェーン上で列�
 
 ### v0.10（2026-11-20）
 
-- 3号商品 Tokenized Stock Check を試作（`lib/products/tokenized-stock-check/`、テスト `scripts/stock-check-test.ts`）。読み方は NVDAc と Dinari AAPL でチェーン上で確かめた。既存2商品の出力・マニフェストは変更なし。
+- 3号商品 Tokenized Stock Check を公開し、OpenSea にツール番号946で登録（ハッシュ 0x10f6f061…bc47）。試作（`lib/products/tokenized-stock-check/`、テスト `scripts/stock-check-test.ts`）。読み方は NVDAc と Dinari AAPL でチェーン上で確かめた。既存2商品の出力・マニフェストは変更なし。
 
 ### v0.9（2026-11-20）
 
