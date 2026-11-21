@@ -1,4 +1,4 @@
-# AIエージェントの店（x402）v0.12
+# AIエージェントの店（x402）v0.13
 
 x402で情報を1回ごとに売る店です。商品ごとに有料APIを持ち、料金所・カタログ（Bazaar）登録・OpenSea（ERC-8257）のマニフェストは店の共通部分が受け持ちます。
 企画・成績・判断の記録は Notion の「AIエージェントの店（x402）」にあります。
@@ -143,6 +143,10 @@ B20 の役割（発行・停止・没収の担当者）はチェーン上で列�
 - `NOTION_TOKEN` が空なら何もしません。
 
 ## 変更履歴
+
+### v0.13（2026-11-22）
+
+- Mint Check: 保有者の偏りを点検。Alchemy の NFT API（getOwnersForContract）で保有者と枚数を取り、`mint.holderConcentration` に保有者数・上位1人と上位10人の割合・上位5人（オーナー／作成者なら印）を出す。上位1人が20%以上で `TOP_HOLDER_LARGE_SHARE`、11人以上いて上位10人が50%以上で `TOP10_HOLD_MAJORITY`。ERC-1155 は tokenId を指定するとその番号だけを数える。鍵は `BASE_RPC_URL` から作り、結果には出さない。Alchemy 以外の RPC、10万人を超える大きなコレクション、取得失敗のときは `notMeasured` に書いて点検は続ける。説明文・マニフェストは不変（OpenSea 933 のハッシュは変わらない）。テスト `scripts/holders-test.ts`。
 
 ### v0.12（2026-11-21）
 

@@ -7,6 +7,7 @@
  */
 import type { Product } from "@/lib/shop/types";
 import { isValidAddress, makeClient, parseTokenId, runMintCheck } from "./checks";
+import { alchemyOwnersFetcher } from "./holders";
 
 export const mintCheck: Product = {
   slug: "mint-check",
@@ -100,7 +101,10 @@ export const mintCheck: Product = {
       return { status: 400, body: { error: "tokenId must be a non-negative decimal integer." } };
     }
     try {
-      const result = await runMintCheck(input.address, makeClient(process.env.BASE_RPC_URL), { tokenId });
+      const result = await runMintCheck(input.address, makeClient(process.env.BASE_RPC_URL), {
+        tokenId,
+        holders: alchemyOwnersFetcher(process.env.BASE_RPC_URL),
+      });
       return { status: 200, body: result };
     } catch {
       return { status: 502, body: { error: "Upstream RPC failed. You were not charged." } };

@@ -15,6 +15,7 @@ import {
   type PublicClient,
 } from "viem";
 import { base } from "viem/chains";
+import { readHolders, type HolderConcentration, type OwnersFetcher } from "./holders";
 import { readExtras, ROYALTY_SETTERS, type InsiderHoldings, type MetadataInfo, type RolesInfo, type RoyaltyInfo } from "./extras";
 
 // ---------- 型 ----------
@@ -61,6 +62,8 @@ export interface MintCheckResult {
     knownTypeDetail: string | null;
     /** v0.9: オーナー・作成者が持っている枚数（事前ミントやチーム分） */
     insiderHoldings: InsiderHoldings | null;
+    /** v0.13: 保有者数と上位の保有割合（Alchemy NFT API が使えるときだけ） */
+    holderConcentration: HolderConcentration | null;
   };
   /** バイトコードから見つかった「オーナーが使えそうな操作」。関数名の一致による推定 */
   capabilities: {
@@ -259,7 +262,7 @@ async function lookupSourcify(address: Address): Promise<{
 export async function runMintCheck(
   rawAddress: string,
   client: PublicClient,
-  opts: { sourcify?: boolean; tokenId?: bigint } = {},
+  opts: { sourcify?: boolean; tokenId?: bigint; holders?: OwnersFetcher | null } = {},
 ): Promise<MintCheckResult> {
   const address = getAddress(rawAddress);
   const flags: MintCheckResult["flags"] = [];
@@ -296,6 +299,7 @@ export async function runMintCheck(
       knownType: null,
       knownTypeDetail: null,
       insiderHoldings: null,
+      holderConcentration: null,
     },
     capabilities: {
       canChangeMetadata: null,
@@ -553,6 +557,18 @@ export async function runMintCheck(
   result.control.royalty = extras.royalty;
   result.control.roles = extras.roles;
   result.mint.insiderHoldings = extras.insiderHoldings;
+
+  // 9. v0.13 保有者の偏り
+  result.mint.holderConcentration = await readHolders({
+    fetcher: opts.holders ?? null,
+    address,
+    standard: result.basics.standard,
+    tokenId: opts.tokenId,
+    owner: result.control.ownerKind === "renounced" ? null : result.control.owner,
+    deployer: result.basics.deployer,
+    flags,
+    notMeasured,
+  });
 
   notMeasured.push({
     item: "capabilities.completeness",
