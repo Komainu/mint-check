@@ -30,7 +30,7 @@ export const tokenizedStockCheck: Product = {
     outputExample: {
       issuer: "coinbase_b20",
       token: { name: "NVIDIA", symbol: "NVDAc", decimals: 8, totalSupply: "59119.04" },
-      status: { pausedFeatures: [] },
+      status: { pausedFeatures: [], corporateActionPause: { paused: false, registryMultiplier: 1.0011 } },
       controls: {
         supplyCap: "uncapped",
         dividendMultiplier: 1.0011,

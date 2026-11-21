@@ -11,13 +11,40 @@
  *
  * チェーン上の調べ方は 2026-11-20 に NVDAc（0xb200…108C）と Dinari AAPL（0x41F7…6348）で確かめた。
  */
-import { getAddress, keccak256, toBytes, type Address, type Hex, type PublicClient } from "viem";
+import { decodeAbiParameters, getAddress, keccak256, toBytes, type Address, type Hex, type PublicClient } from "viem";
 
 export type HolderKind = "single_key" | "contract";
 type Flag = { code: string; note: string };
 
 const B20_PREFIX = "0xb20000000000000000000";
 const POLICY_REGISTRY = "0x8453000000000000000000000000000000000002" as Address;
+/**
+ * Coinbase のオラクル登録簿（Base 公式ドキュメントの "Onchain Registry"）。
+ * Chainlink の株価フィードはここから倍率と一時停止フラグを読み、フラグが立つと価格を止める。
+ * 株式分割などのコーポレートアクション中に Coinbase が立てる。トークン自体は止まらない（送金はできる）。
+ * 関数名は非公開のため、2026-11-21 にコードを読んで確かめたセレクタを直接使う:
+ *   0xd4197e82(address token) returns (uint256 multiplier, bool paused)
+ * 未登録のトークンでは revert する。
+ */
+export const ORACLE_REGISTRY = "0x3f3E8cf41cdd3b1D118c16471aB0113DfDDd5CaD" as Address;
+export const ORACLE_STATE_SELECTOR = "0xd4197e82";
+
+async function readOracleState(client: PublicClient, token: Address): Promise<{ multiplier: bigint; paused: boolean } | null> {
+  const data = (ORACLE_STATE_SELECTOR + token.slice(2).toLowerCase().padStart(64, "0")) as Hex;
+  const res = await readTwice(async () => {
+    const r = await client.call({ to: ORACLE_REGISTRY, data });
+    if (!r.data || r.data === "0x") throw new Error("empty");
+    return r.data;
+  });
+  if (!res) return null;
+  try {
+    const [multiplier, paused] = decodeAbiParameters([{ type: "uint256" }, { type: "bool" }], res);
+    return { multiplier, paused };
+  } catch {
+    return null;
+  }
+}
+
 const B20_FEATURES = ["TRANSFER", "MINT", "BURN", "SEIZE"] as const;
 const UINT128_MAX = (1n << 128n) - 1n;
 
@@ -253,6 +280,26 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
     if (!seize) notMeasured.push({ item: "controls.seize", reason: "Seize policy slot could not be read." });
     notMeasured.push({ item: "controls.roles", reason: "B20 roles (mint, pause, seize, operator) cannot be listed on-chain; only role checks for a known address are possible." });
 
+    // コーポレートアクションの一時停止（オラクル登録簿）
+    const oracle = await readOracleState(client, address);
+    let corporateActionPause: Record<string, unknown> | null = null;
+    if (oracle) {
+      corporateActionPause = {
+        paused: oracle.paused,
+        registry: ORACLE_REGISTRY,
+        registryMultiplier: Number(oracle.multiplier) / 1e18,
+        note: "Set by Coinbase during corporate actions such as splits. While set, the Chainlink feed holds its last value; the token itself keeps transferring.",
+      };
+      if (oracle.paused) {
+        flags.push({
+          code: "CORPORATE_ACTION_PAUSE",
+          note: "Coinbase has paused this token in its oracle registry (corporate action in progress). The price feed is frozen at the pre-pause value until both the price and the multiplier are updated; do not settle or liquidate against it. Mint and redeem are likely paused off-chain.",
+        });
+      }
+    } else {
+      notMeasured.push({ item: "status.corporateActionPause", reason: "Not listed in Coinbase's oracle registry, or the registry could not be read." });
+    }
+
     // 価格（Chainlink）
     const ticker = symbol && /c$/.test(symbol) ? symbol.slice(0, -1).toUpperCase() : null;
     const feed = ticker ? COINBASE_FEEDS[ticker] : undefined;
@@ -272,7 +319,7 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
           ageSeconds,
           note: "Total-return value (underlying price x multiplier). Updates Sunday 20:00 to Friday 20:00 New York including extended hours; holds the last value on weekends and during corporate-action pauses.",
         };
-        if (market.feedWindowOpen && ageSeconds > 26 * 3600) {
+        if (market.feedWindowOpen && ageSeconds > 26 * 3600 && !oracle?.paused) {
           flags.push({ code: "PRICE_FEED_STALE", note: `The feed should be updating now but was last updated ${Math.round(ageSeconds / 3600)} h ago (heartbeat 24 h). It may be frozen for a corporate action.` });
         }
       } else {
@@ -288,7 +335,7 @@ export async function runStockCheck(rawAddress: string, opts: StockCheckOptions)
       checkedAt: now.toISOString(),
       issuer: "coinbase_b20",
       token,
-      status: { pausedFeatures: pausedNames },
+      status: { pausedFeatures: pausedNames, corporateActionPause },
       controls: {
         supplyCap: cap == null ? null : cap >= UINT128_MAX ? "uncapped" : (Number(cap) / 10 ** dec).toString(),
         dividendMultiplier: multiplier != null ? Number(multiplier) / 1e18 : null,

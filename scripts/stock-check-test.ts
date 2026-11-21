@@ -55,6 +55,9 @@ const DINARI = "0x41f7a63713e76c0ab800be03bae9f17b8a356348";
 const BEACON = "0x6aa1bda7e764bc62589e64f371a4022b80b3c72a";
 const RESTRICTOR = "0xe1b2feede3ffe7e63a89a669a08688951c94611e";
 const REGISTRY = "0x8453000000000000000000000000000000000002";
+const ORACLE = "0x3f3e8cf41cdd3b1d118c16471ab0113dfddd5cad";
+const oracleCall = (token: string) => ("0xd4197e82" + token.slice(2).toLowerCase().padStart(64, "0")) as string;
+let nvdaOraclePaused = false;
 const FEED_NVDA = "0x04689a41629776563e6822f76f2e57d148d28513";
 const EOA = "0x2222222222222222222222222222222222222222";
 const SAFE = "0x4444444444444444444444444444444444444444";
@@ -119,6 +122,12 @@ const world: Record<string, { code: Hex; calls: () => Record<string, Hex> }> = {
       [call("isAuthorized", [129n, PROBE_ADDRESS])]: ret(["bool"], [true]),
       [call("policyAdmin", [7n])]: ret(["address"], [SAFE]),
       [call("isAuthorized", [7n, PROBE_ADDRESS])]: ret(["bool"], [false]),
+    }),
+  },
+  [ORACLE]: {
+    code: "0x6080",
+    calls: () => ({
+      [oracleCall(NVDAC)]: ret(["uint256", "bool"], [1001100000000000000n, nvdaOraclePaused]),
     }),
   },
   [FEED_NVDA]: {
@@ -207,6 +216,7 @@ async function main() {
   expect("Chainlink 価格 143.54", Math.abs((a.price?.answerUsd ?? 0) - 143.54) < 0.01 && a.price.ageSeconds === 3600);
   expect("開場中で1時間前の更新は古くない", !has(a, "PRICE_FEED_STALE"));
   expect("開場中は週末停止の注意なし", !has(a, "PRICE_FEED_FROZEN_WEEKEND") && a.market.open === true);
+  expect("オラクル登録簿: 一時停止なし・倍率 1.0011", a.status.corporateActionPause?.paused === false && Math.abs(a.status.corporateActionPause.registryMultiplier - 1.0011) < 1e-9 && !has(a, "CORPORATE_ACTION_PAUSE"));
   expect("役割は列挙できないと書く", a.notMeasured.some((n: any) => n.item === "controls.roles"));
 
   feedUpdatedAt = sec(NOW_OPEN) - 3n * 86400n;
@@ -216,6 +226,11 @@ async function main() {
   expect("週末は古くても STALE にしない", !has(weekend, "PRICE_FEED_STALE") && has(weekend, "PRICE_FEED_FROZEN_WEEKEND"));
   const extendedStale: any = await runStockCheck(NVDAC, { client, now: () => NOW_CLOSED });
   expect("平日の時間外でも3日前の価格は STALE", has(extendedStale, "PRICE_FEED_STALE") && !has(extendedStale, "PRICE_FEED_FROZEN_WEEKEND"));
+  nvdaOraclePaused = true;
+  const ca: any = await runStockCheck(NVDAC, { client, now: () => NOW_OPEN });
+  expect("一時停止中は CORPORATE_ACTION_PAUSE", ca.status.corporateActionPause.paused === true && has(ca, "CORPORATE_ACTION_PAUSE"));
+  expect("一時停止中は理由がわかるので STALE を重ねない", !has(ca, "PRICE_FEED_STALE"));
+  nvdaOraclePaused = false;
   feedUpdatedAt = sec(NOW_OPEN) - 3600n;
 
   const flagCount = (r: any, code: string) => r.flags.filter((f: any) => f.code === code).length;
@@ -235,6 +250,7 @@ async function main() {
   expect("許可リスト型を見分ける", p.controls.transferSenderPolicy.openByDefault === false && has(p, "TRANSFERS_ALLOWLIST_ONLY"));
   expect("上限 1000", p.controls.supplyCap === "1000");
   expect("没収なし", !has(p, "SEIZE_CONFIGURED"));
+  expect("登録簿にないトークンは測れないと書く", p.status.corporateActionPause === null && p.notMeasured.some((n: any) => n.item === "status.corporateActionPause"));
   expect("知らない銘柄の価格は測れないと書く", p.price === null && p.notMeasured.some((n: any) => n.item === "price"));
   expect("平日の時間外は週末停止の注意を出さない", !has(p, "PRICE_FEED_FROZEN_WEEKEND") && p.market.session === "extended");
 
